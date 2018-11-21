@@ -7,7 +7,7 @@ VERSION:=$(shell cat src/DDTrace/Version.php | grep VERSION | awk '{print $$NF}'
 
 INI_FILE := /usr/local/etc/php/conf.d/ddtrace.ini
 
-all: configure $(SO_FILE)
+all: $(BUILD_DIR)/configure $(SO_FILE)
 
 src/ext/version.h:
 	@echo "Creating [src/ext/version.h]\n"
@@ -18,7 +18,7 @@ src/ext/version.h:
 	@cat $@ #| grep '#define'
 
 $(BUILD_DIR)/config.m4: config.m4
-	@mkdir -p $@
+	@mkdir -p $(BUILD_DIR)
 	@cp config.m4 $@
 
 $(BUILD_DIR)/configure: $(BUILD_DIR)/config.m4
@@ -50,7 +50,6 @@ test_integration: install_ini
 	composer test -- $(PHPUNIT)
 
 dist_clean:
-	phpize --clean
 	rm -rf $(BUILD_DIR)
 
 clean:
