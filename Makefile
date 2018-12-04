@@ -1,5 +1,6 @@
 BUILD_SUFFIX := extension
 BUILD_DIR := tmp/build_$(BUILD_SUFFIX)
+ABS_SRC_DIR := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 SO_FILE := $(BUILD_DIR)/modules/ddtrace.so
 # WALL_FLAGS := -Wall -Werror -Wextra
 CFLAGS := -O2 $(WALL_FLAGS)
@@ -11,7 +12,7 @@ all: $(BUILD_DIR)/configure $(SO_FILE)
 
 src/ext/version.h:
 	@echo "Creating [src/ext/version.h]\n"
-	@echo -n "PHP: "
+	@echo "PHP: "
 	@cat src/DDTrace/Version.php | grep VERSION
 	@(echo '#ifndef PHP_DDTRACE_VERSION\n#define PHP_DDTRACE_VERSION "$(VERSION)"\n#endif' ) > $@
 	@echo "C: "
@@ -25,7 +26,7 @@ $(BUILD_DIR)/configure: $(BUILD_DIR)/config.m4
 	@(cd $(BUILD_DIR); phpize)
 
 $(BUILD_DIR)/Makefile: $(BUILD_DIR)/configure
-	@$(BUILD_DIR)/configure --builddir=$(BUILD_DIR)
+	@(cd $(BUILD_DIR); ./configure --srcdir=$(ABS_SRC_DIR))
 
 $(SO_FILE): $(BUILD_DIR)/Makefile src/ext/version.h
 	@$(MAKE) -C $(BUILD_DIR) CFLAGS="$(CFLAGS)"
