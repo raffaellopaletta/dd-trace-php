@@ -1,7 +1,6 @@
 PHP_ARG_ENABLE(ddtrace, whether to enable Datadog tracing support,[  --enable-ddtrace   Enable Datadog training support])
 
 PHP_ARG_WITH(ddtrace-sanitize, whether to enable AddressSanitizer for ddtrace,[  --with-ddtrace-sanitize Build Datadog tracing with AddressSanitizer support], no, no)
-PHP_ARG_WITH(ddtrace-root-dir, root dir of the repository,[  --with-ddtrace-root-dir Change root dir of the repository], './')
 
 if test "$PHP_DDTRACE" != "no"; then
   if test "$PHP_DDTRACE_SANITIZE" != "no"; then

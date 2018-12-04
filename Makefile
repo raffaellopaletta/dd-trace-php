@@ -25,13 +25,13 @@ $(BUILD_DIR)/configure: $(BUILD_DIR)/config.m4
 	@(cd $(BUILD_DIR); phpize)
 
 $(BUILD_DIR)/Makefile: $(BUILD_DIR)/configure
-	@(cd $(BUILD_DIR); ./configure --with-ddtrace-root-dir=../..)
+	@$(BUILD_DIR)/configure --builddir=$(BUILD_DIR)
 
 $(SO_FILE): $(BUILD_DIR)/Makefile src/ext/version.h
-	$(MAKE) -C $(BUILD_DIR) CFLAGS="$(CFLAGS)"
+	@$(MAKE) -C $(BUILD_DIR) CFLAGS="$(CFLAGS)"
 
 install: $(SO_FILE)
-	$(SUDO) $(MAKE) -C $(BUILD_DIR) install
+	@$(SUDO) $(MAKE) -C $(BUILD_DIR) install
 
 $(INI_FILE):
 	echo "extension=ddtrace.so" | $(SUDO) tee $@
