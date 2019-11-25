@@ -6,7 +6,7 @@ use DDTrace\Propagators\TextMap;
 use DDTrace\SpanContext;
 use DDTrace\Tests\DebugTransport;
 use DDTrace\Tracer;
-use OpenTracing\GlobalTracer;
+use DDTrace\GlobalTracer;
 use PHPUnit\Framework;
 
 final class TextMapTest extends Framework\TestCase
@@ -103,5 +103,31 @@ final class TextMapTest extends Framework\TestCase
         $textMapPropagator = new TextMap($this->tracer);
         $context = $textMapPropagator->extract($carrier);
         $this->assertSame(null, $context->getPropagatedPrioritySampling());
+    }
+
+    public function testOriginIsPropagated()
+    {
+        $rootContext = SpanContext::createAsRoot();
+        $rootContext->origin = 'foo_origin';
+        $context = SpanContext::createAsChild($rootContext);
+
+        $carrier = [];
+        $textMapPropagator = new TextMap($this->tracer);
+        $textMapPropagator->inject($context, $carrier);
+
+        $this->assertSame('foo_origin', $carrier['x-datadog-origin']);
+    }
+
+    public function testOriginIsExtracted()
+    {
+        $carrier = [
+            'x-datadog-trace-id' => self::TRACE_ID,
+            'x-datadog-parent-id' => self::SPAN_ID,
+            'x-datadog-origin' => 'foo_origin',
+        ];
+        $textMapPropagator = new TextMap($this->tracer);
+        $context = $textMapPropagator->extract($carrier);
+
+        $this->assertSame('foo_origin', $context->origin);
     }
 }

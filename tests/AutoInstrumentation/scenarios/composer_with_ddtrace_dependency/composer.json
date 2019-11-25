@@ -1,0 +1,5 @@
+{
+    "require": {
+        "datadog/dd-trace": "0.31.0"
+    }
+}

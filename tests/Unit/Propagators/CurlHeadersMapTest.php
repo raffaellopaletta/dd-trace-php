@@ -6,7 +6,7 @@ use DDTrace\Propagators\CurlHeadersMap;
 use DDTrace\SpanContext;
 use DDTrace\Tests\DebugTransport;
 use DDTrace\Tracer;
-use OpenTracing\GlobalTracer;
+use DDTrace\GlobalTracer;
 use PHPUnit\Framework;
 
 final class CurlHeadersMapTest extends Framework\TestCase
@@ -86,5 +86,17 @@ final class CurlHeadersMapTest extends Framework\TestCase
             'x-datadog-parent-id: ' . $context->getSpanId(),
             'ot-baggage-' . self::BAGGAGE_ITEM_KEY . ': ' . self::BAGGAGE_ITEM_VALUE,
         ], array_values($carrier));
+    }
+
+    public function testOriginIsPropagated()
+    {
+        $rootContext = SpanContext::createAsRoot();
+        $rootContext->origin = 'foo_origin';
+        $context = SpanContext::createAsChild($rootContext);
+
+        $carrier = [];
+        (new CurlHeadersMap($this->tracer))->inject($context, $carrier);
+
+        $this->assertContains('x-datadog-origin: foo_origin', $carrier);
     }
 }

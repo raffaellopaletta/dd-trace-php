@@ -38,12 +38,40 @@ abstract class AbstractConfiguration implements Registry
 
     /**
      * {@inheritdoc}
+     */
+    public function stringValue($key, $default = '')
+    {
+        return $this->registry->stringValue($key, $default);
+    }
+
+    /**
+     * {@inheritdoc}
      *
      * Allows users to access configuration properties by name instead of calling explicit methods.
      */
     public function boolValue($key, $default)
     {
         return $this->registry->boolValue($key, $default);
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * Returns a floating point value from the registry.
+     */
+    public function floatValue($key, $default, $min = null, $max = null)
+    {
+        return $this->registry->floatValue($key, $default, $min, $max);
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * Reads a configuration property into an associative string => string array.
+     */
+    public function associativeStringArrayValue($key)
+    {
+        return $this->registry->associativeStringArrayValue($key);
     }
 
     /**

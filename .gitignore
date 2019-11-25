@@ -1,10 +1,12 @@
 **/vendor/
+tmp/build_extension/
 composer.lock
 .scenarios.lock/
 .vscode/
 .libs
 .deps
-Makefile*
+**.code-workspace
+/Makefile*
 acinclude.m4
 aclocal.m4
 autom4te*
@@ -17,6 +19,7 @@ configure
 *.o
 *.so
 install-sh
+error.log
 libtool
 ltmain.sh
 missing
@@ -34,3 +37,5 @@ tests/ext/*.log
 tests/ext/*.mem
 tmp-php.ini
 tmp/opcache*
+*.orig
+docker-compose.override.yml

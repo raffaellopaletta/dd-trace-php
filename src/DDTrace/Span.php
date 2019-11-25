@@ -2,83 +2,31 @@
 
 namespace DDTrace;
 
+use DDTrace\Integrations\Integration;
+use DDTrace\Data\Span as DataSpan;
 use DDTrace\Exceptions\InvalidSpanArgument;
+use DDTrace\SpanContext as SpanContext;
+use DDTrace\Http\Urls;
+use DDTrace\Processing\TraceAnalyticsProcessor;
 use Exception;
 use InvalidArgumentException;
 use Throwable;
 
-
-final class Span implements SpanInterface
+final class Span extends DataSpan
 {
-    /**
-     * Operation Name is the name of the operation being measured. Some examples
-     * might be "http.handler", "fileserver.upload" or "video.decompress".
-     * Name should be set on every span.
-     *
-     * @var string
-     */
-    private $operationName;
-
-    /**
-     * @var SpanContext
-     */
-    private $context;
-
-    /**
-     * Resource is a query to a service. A web application might use
-     * resources like "/user/{user_id}". A sql database might use resources
-     * like "select * from user where id = ?".
-     *
-     * You can track thousands of resources (not millions or billions) so
-     * prefer normalized resources like "/user/{id}" to "/user/123".
-     *
-     * Resources should only be set on an app's top level spans.
-     *
-     * @var string
-     */
-    private $resource;
-
-    /**
-     * Service is the name of the process doing a particular job. Some
-     * examples might be "user-database" or "datadog-web-app". Services
-     * will be inherited from parents, so only set this in your app's
-     * top level span.
-     *
-     * @var string
-     */
-    private $service;
-
-    /**
-     * Protocol associated with the span
-     *
-     * @var string|null
-     */
-    private $type;
-
-    /**
-     * @var int
-     */
-    private $startTime;
-
-    /**
-     * @var int|null
-     */
-    private $duration;
-
-    /**
-     * @var array
-     */
-    private $tags = [];
-
-    /**
-     * @var bool
-     */
-    private $hasError = false;
-
-    /**
-     * @var int
-     */
-    private $prioritySampling;
+    private static $metricNames = [ Tag::ANALYTICS_KEY => true ];
+    // associative array for quickly checking if tag has special meaning, should include metric_names
+    private static $specialTags = [
+        Tag::ANALYTICS_KEY => true,
+        Tag::ERROR => true,
+        Tag::SERVICE_NAME => true,
+        Tag::RESOURCE_NAME => true,
+        Tag::SPAN_TYPE => true,
+        Tag::HTTP_URL => true,
+        Tag::HTTP_STATUS_CODE => true,
+        Tag::MANUAL_KEEP => true,
+        Tag::MANUAL_DROP => true,
+    ];
 
     /**
      * Span constructor.
@@ -99,31 +47,31 @@ final class Span implements SpanInterface
         $this->operationName = (string)$operationName;
         $this->service = (string)$service;
         $this->resource = (string)$resource;
-        $this->startTime = $startTime ?: Time\now();
+        $this->startTime = $startTime ?: Time::now();
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
     public function getTraceId()
     {
-        return $this->context->getTraceId();
+        return $this->context->traceId;
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
     public function getSpanId()
     {
-        return $this->context->getSpanId();
+        return $this->context->spanId;
     }
 
     /**
-     * @return null|string
+     * {@inheritdoc}
      */
     public function getParentId()
     {
-        return $this->context->getParentId();
+        return $this->context->parentId;
     }
 
     /**
@@ -135,7 +83,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
     public function getResource()
     {
@@ -143,7 +91,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
     public function getService()
     {
@@ -151,7 +99,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return string|null
+     * {@inheritdoc}
      */
     public function getType()
     {
@@ -159,7 +107,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return int
+     * {@inheritdoc}
      */
     public function getStartTime()
     {
@@ -167,7 +115,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return int
+     * {@inheritdoc}
      */
     public function getDuration()
     {
@@ -177,42 +125,73 @@ final class Span implements SpanInterface
     /**
      * {@inheritdoc}
      */
-    public function setTag($key, $value)
+    public function setTag($key, $value, $setIfFinished = false)
     {
-        if ($this->isFinished()) {
+        if ($this->duration !== null && !$setIfFinished) { // if finished
             return;
         }
-
         if ($key !== (string)$key) {
             throw InvalidSpanArgument::forTagKey($key);
         }
-
-        if ($key === Tags\ERROR) {
-            $this->setError($value);
+        // Since sub classes can change the return value of a known method,
+        // we quietly ignore values that could cause errors when converting to string
+        if (is_object($value) && $key !== Tag::ERROR) {
             return;
         }
 
-        if ($key === Tags\SERVICE_NAME) {
-            $this->service = $value;
-            return;
-        }
+        if (array_key_exists($key, self::$specialTags)) {
+            if ($key === Tag::ERROR) {
+                $this->setError($value);
+                return;
+            }
 
-        if ($key === Tags\RESOURCE_NAME) {
-            $this->resource = (string)$value;
-            return;
-        }
+            if ($key === Tag::SERVICE_NAME) {
+                $this->service = $value;
+                return;
+            }
 
-        if ($key === Tags\SPAN_TYPE) {
-            $this->type = $value;
-            return;
+            if ($key === Tag::MANUAL_KEEP) {
+                GlobalTracer::get()->setPrioritySampling(Sampling\PrioritySampling::USER_KEEP);
+                return;
+            }
+
+            if ($key === Tag::MANUAL_DROP) {
+                GlobalTracer::get()->setPrioritySampling(Sampling\PrioritySampling::USER_REJECT);
+                return;
+            }
+
+            if ($key === Tag::RESOURCE_NAME) {
+                $this->resource = (string)$value;
+                return;
+            }
+
+            if ($key === Tag::SPAN_TYPE) {
+                $this->type = $value;
+                return;
+            }
+
+            if ($key === Tag::HTTP_URL) {
+                $value = Urls::sanitize((string)$value);
+            }
+
+            if ($key === Tag::HTTP_STATUS_CODE && $value >= 500) {
+                $this->hasError = true;
+                if (!isset($this->tags[Tag::ERROR_TYPE])) {
+                    $this->tags[Tag::ERROR_TYPE] = 'Internal Server Error';
+                }
+            }
+
+            if (array_key_exists($key, self::$metricNames)) {
+                $this->setMetric($key, $value);
+                return;
+            }
         }
 
         $this->tags[$key] = (string)$value;
     }
 
     /**
-     * @param string $key
-     * @return string|null
+     * {@inheritdoc}
      */
     public function getTag($key)
     {
@@ -224,7 +203,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return array
+     * {@inheritdoc}
      */
     public function getAllTags()
     {
@@ -232,14 +211,41 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @deprecated
-     * @param string $resource
+     * {@inheritdoc}
+     */
+    public function hasTag($name)
+    {
+        return array_key_exists($name, $this->getAllTags());
+    }
+
+    /**
+     * @param string $key
+     * @param mixed $value
+     */
+    public function setMetric($key, $value)
+    {
+        if ($key === Tag::ANALYTICS_KEY) {
+            TraceAnalyticsProcessor::normalizeAnalyticsValue($this->metrics, $value);
+            return;
+        }
+
+        $this->metrics[$key] = $value;
+    }
+
+    /**
+     * @return array
+     */
+    public function getMetrics()
+    {
+        return $this->metrics;
+    }
+
+    /**
+     * {@inheritdoc}
      */
     public function setResource($resource)
     {
-        error_log('DEPRECATED: Method "DDTrace\Span\setResource" will be removed soon, '
-            . 'you should use DDTrace\Span::setTag(Tags\RESOURCE_NAME, $value) instead.');
-        $this->setTag(Tags\RESOURCE_NAME, $resource);
+        $this->resource = (string)$resource;
     }
 
     /**
@@ -252,15 +258,15 @@ final class Span implements SpanInterface
      */
     public function setError($error)
     {
-        if ($this->isFinished()) {
+        if ($this->duration !== null) { // if finished
             return;
         }
 
         if (($error instanceof Exception) || ($error instanceof Throwable)) {
             $this->hasError = true;
-            $this->tags[Tags\ERROR_MSG] = $error->getMessage();
-            $this->tags[Tags\ERROR_TYPE] = get_class($error);
-            $this->tags[Tags\ERROR_STACK] = $error->getTraceAsString();
+            $this->tags[Tag::ERROR_MSG] = $error->getMessage();
+            $this->tags[Tag::ERROR_TYPE] = get_class($error);
+            $this->tags[Tag::ERROR_STACK] = $error->getTraceAsString();
             return;
         }
 
@@ -282,13 +288,13 @@ final class Span implements SpanInterface
      */
     public function setRawError($message, $type)
     {
-        if ($this->isFinished()) {
+        if ($this->duration !== null) { // if finished
             return;
         }
 
         $this->hasError = true;
-        $this->tags[Tags\ERROR_MSG] = $message;
-        $this->tags[Tags\ERROR_TYPE] = $type;
+        $this->tags[Tag::ERROR_MSG] = $message;
+        $this->tags[Tag::ERROR_TYPE] = $type;
     }
 
     public function hasError()
@@ -301,11 +307,13 @@ final class Span implements SpanInterface
      */
     public function finish($finishTime = null)
     {
-        if ($this->isFinished()) {
+        if ($this->duration !== null) { // if finished
             return;
         }
 
-        $this->duration = ($finishTime ?: Time\now()) - $this->startTime;
+        $this->duration = ($finishTime ?: Time::now()) - $this->startTime;
+        // Sync with span ID stack at the C level
+        dd_trace_pop_span_id();
     }
 
     /**
@@ -319,7 +327,7 @@ final class Span implements SpanInterface
     }
 
     /**
-     * @return bool
+     * {@inheritdoc}
      */
     public function isFinished()
     {
@@ -348,14 +356,14 @@ final class Span implements SpanInterface
     public function log(array $fields = [], $timestamp = null)
     {
         foreach ($fields as $key => $value) {
-            if ($key === Tags\LOG_EVENT && $value === Tags\ERROR) {
+            if ($key === Tag::LOG_EVENT && $value === Tag::ERROR) {
                 $this->setError(true);
-            } elseif ($key === Tags\LOG_ERROR || $key === Tags\LOG_ERROR_OBJECT) {
+            } elseif ($key === Tag::LOG_ERROR || $key === Tag::LOG_ERROR_OBJECT) {
                 $this->setError($value);
-            } elseif ($key === Tags\LOG_MESSAGE) {
-                $this->setTag(Tags\ERROR_MSG, $value);
-            } elseif ($key === Tags\LOG_STACK) {
-                $this->setTag(Tags\ERROR_STACK, $value);
+            } elseif ($key === Tag::LOG_MESSAGE) {
+                $this->setTag(Tag::ERROR_MSG, $value);
+            } elseif ($key === Tag::LOG_STACK) {
+                $this->setTag(Tag::ERROR_STACK, $value);
             }
         }
     }
@@ -374,5 +382,51 @@ final class Span implements SpanInterface
     public function getBaggageItem($key)
     {
         return $this->context->getBaggageItem($key);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getAllBaggageItems()
+    {
+        return $this->context->baggageItems;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @param Integration $integration
+     * @return self
+     */
+    public function setIntegration(Integration $integration)
+    {
+        $this->integration = $integration;
+        return $this;
+    }
+
+    /**
+     * @return null|Integration
+     */
+    public function getIntegration()
+    {
+        return $this->integration;
+    }
+
+    /**
+     * @param bool $value
+     * @return self
+     */
+    public function setTraceAnalyticsCandidate($value = true)
+    {
+        $this->isTraceAnalyticsCandidate = $value;
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isTraceAnalyticsCandidate()
+    {
+        return $this->isTraceAnalyticsCandidate;
     }
 }

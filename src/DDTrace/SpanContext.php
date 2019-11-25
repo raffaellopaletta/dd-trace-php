@@ -3,55 +3,11 @@
 namespace DDTrace;
 
 use ArrayIterator;
-use OpenTracing\SpanContext as OpenTracingSpanContext;
+use DDTrace\Contracts\SpanContext as SpanContextInterface;
+use DDTrace\Data\SpanContext as SpanContextData;
 
-final class SpanContext implements OpenTracingSpanContext
+final class SpanContext extends SpanContextData
 {
-    /**
-     * The unique integer (64-bit unsigned) ID of the trace containing this span.
-     * It is stored in hexadecimal representation.
-     *
-     * @var string
-     */
-    private $traceId;
-
-    /**
-     * The span integer (64-bit unsigned) ID.
-     * It is stored in hexadecimal representation.
-     *
-     * @var string
-     */
-    private $spanId;
-
-    /**
-     * The span integer ID of the parent span.
-     * It is stored in hexadecimal representation.
-     *
-     * @var string|null
-     */
-    private $parentId;
-
-    private $baggageItems;
-
-    /**
-     * Whether or not this SpanContext represent a distributed tracing remote context.
-     * When the Tracer::extract() extracts a span context because of distributed tracing then this property is true,
-     * otherwise is false.
-     *
-     * @var bool
-     */
-    private $isDistributedTracingActivationContext;
-
-    /**
-     * @var int
-     */
-    private $propagatedPrioritySampling;
-
-    /**
-     * @var SpanContext
-     */
-    private $parentContext;
-
     public function __construct(
         $traceId,
         $spanId,
@@ -61,28 +17,41 @@ final class SpanContext implements OpenTracingSpanContext
     ) {
         $this->traceId = $traceId;
         $this->spanId = $spanId;
-        $this->parentId = $parentId;
+        $this->parentId = $parentId ?: null;
         $this->baggageItems = $baggageItems;
         $this->isDistributedTracingActivationContext = $isDistributedTracingActivationContext;
     }
 
-    public static function createAsChild(SpanContext $parentContext)
+    public static function createAsChild(SpanContextInterface $parentContext)
     {
+        // Since dd_trace_push_span_id() updates the return value of
+        // dd_trace_peek_span_id(), we need to access the existing
+        // value before generating a new ID
+        $activeSpanId = dd_trace_peek_span_id();
+
         $instance = new self(
-            $parentContext->traceId,
-            self::nextId(),
-            $parentContext->spanId,
-            $parentContext->baggageItems,
+            $parentContext->getTraceId(),
+            dd_trace_push_span_id(),
+            // Since the last span could have been generated internally,
+            // we can't use `$parentContext->getSpanId()` here
+            $activeSpanId,
+            $parentContext->getAllBaggageItems(),
             false
         );
         $instance->parentContext = $parentContext;
-        $instance->setPropagatedPrioritySampling($parentContext->propagatedPrioritySampling);
+        $instance->setPropagatedPrioritySampling($parentContext->getPropagatedPrioritySampling());
+        if (
+            property_exists($instance, 'origin')
+            && !empty($parentContext->origin)
+        ) {
+            $instance->origin = $parentContext->origin;
+        }
         return $instance;
     }
 
     public static function createAsRoot(array $baggageItems = [])
     {
-        $nextId = self::nextId();
+        $nextId = dd_trace_push_span_id();
 
         return new self(
             $nextId,
@@ -93,28 +62,40 @@ final class SpanContext implements OpenTracingSpanContext
         );
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getTraceId()
     {
         return $this->traceId;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getSpanId()
     {
         return $this->spanId;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getParentId()
     {
         return $this->parentId;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getIterator()
     {
         return new ArrayIterator($this->baggageItems);
     }
 
     /**
-     * @return int
+     * {@inheritdoc}
      */
     public function getPropagatedPrioritySampling()
     {
@@ -122,13 +103,16 @@ final class SpanContext implements OpenTracingSpanContext
     }
 
     /**
-     * @param int $propagatedPrioritySampling
+     * {@inheritdoc}
      */
     public function setPropagatedPrioritySampling($propagatedPrioritySampling)
     {
         $this->propagatedPrioritySampling = $propagatedPrioritySampling;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getBaggageItem($key)
     {
         return array_key_exists($key, $this->baggageItems)
@@ -136,6 +120,9 @@ final class SpanContext implements OpenTracingSpanContext
             : null;
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function withBaggageItem($key, $value)
     {
         return new self(
@@ -146,30 +133,32 @@ final class SpanContext implements OpenTracingSpanContext
         );
     }
 
-    public function isEqual(SpanContext $spanContext)
+    /**
+     * {@inheritdoc}
+     */
+    public function getAllBaggageItems()
     {
-        return
-            $this->traceId === $spanContext->traceId
-            && $this->spanId === $spanContext->spanId
-            && $this->parentId === $spanContext->parentId
-            && $this->baggageItems === $spanContext->baggageItems;
+        return $this->baggageItems;
     }
 
-    private static function nextId()
+    public function isEqual(SpanContextInterface $spanContext)
     {
-        /*
-         * Trace and span ID's need to be unsigned-63-bit-int strings in
-         * order to work well with other APM integrations. Since the tracer
-         * is not in a cryptographic context, we don't need to use PHP's
-         * CSPRNG random_bytes(); instead the more performant mt_rand()
-         * will do. And since all integers in PHP are signed, an int
-         * between 1 & PHP_INT_MAX will be 63-bit.
-         */
-        return (string) mt_rand(1, PHP_INT_MAX);
+        if ($spanContext instanceof SpanContextData) {
+            return $this->traceId === $spanContext->traceId
+                && $this->spanId === $spanContext->spanId
+                && $this->parentId === $spanContext->parentId
+                && $this->baggageItems === $spanContext->baggageItems;
+        }
+
+        return
+            $this->traceId === $spanContext->getTraceId()
+            && $this->spanId === $spanContext->getSpanId()
+            && $this->parentId === $spanContext->getParentId()
+            && $this->baggageItems === $spanContext->getAllBaggageItems();
     }
 
     /**
-     * @return bool
+     * {@inheritdoc}
      */
     public function isDistributedTracingActivationContext()
     {
@@ -177,9 +166,7 @@ final class SpanContext implements OpenTracingSpanContext
     }
 
     /**
-     * Returns whether or not this context represents the root span for a specific host.
-     *
-     * @return bool
+     * {@inheritdoc}
      */
     public function isHostRoot()
     {

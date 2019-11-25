@@ -13,9 +13,50 @@ class EnvVariableRegistry implements Registry
      */
     private $registry;
 
-    public function __construct()
+    /**
+     * @var string
+     */
+    private $prefix;
+
+    /**
+     * @param string $prefix
+     */
+    public function __construct($prefix = 'DD_')
     {
+        $this->prefix = $prefix;
         $this->registry = [];
+    }
+
+    /**
+     * Return an env variable that starts with "DD_".
+     *
+     * @param string $key
+     * @return string|null
+     */
+    protected function get($key)
+    {
+        $value = getenv($this->convertKeyToEnvVariableName($key));
+        if (false === $value) {
+            return null;
+        }
+        return trim($value);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function stringValue($key, $default)
+    {
+        if (isset($this->registry[$key])) {
+            return $this->registry[$key];
+        }
+        $value = $this->get($key);
+        if (null !== $value) {
+            return $this->registry[$key] = $value;
+        } else {
+            return $this->registry[$key] = $default;
+        }
+        return $this->registry[$key];
     }
 
     /**
@@ -23,16 +64,93 @@ class EnvVariableRegistry implements Registry
      */
     public function boolValue($key, $default)
     {
+        if (isset($this->registry[$key])) {
+            return $this->registry[$key];
+        }
+
+        $value = $this->get($key);
+        if (null === $value) {
+            return $default;
+        }
+
+        $value = strtolower($value);
+        if ($value === '1' || $value === 'true') {
+            $this->registry[$key] = true;
+        } elseif ($value === '0' || $value === 'false') {
+            $this->registry[$key] = false;
+        } else {
+            $this->registry[$key] = $default;
+        }
+
+        return $this->registry[$key];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function floatValue($key, $default, $min = null, $max = null)
+    {
         if (!isset($this->registry[$key])) {
-            $value = getenv($this->convertKeyToEnvVariableName($key));
-            $value = trim(strtolower($value));
-            if ($value === '1' || $value === 'true') {
-                $this->registry[$key] = true;
-            } elseif ($value === '0' || $value === 'false') {
-                $this->registry[$key] = false;
+            $value = $this->get($key);
+            $value = strtolower($value);
+            if (is_numeric($value)) {
+                $floatValue = (float)$value;
             } else {
-                $this->registry[$key] = $default;
+                $floatValue = (float)$default;
             }
+
+            if (null !== $min && $floatValue < $min) {
+                $floatValue = $min;
+            }
+
+            if (null !== $max && $floatValue > $max) {
+                $floatValue = $max;
+            }
+
+            $this->registry[$key] = $floatValue;
+        }
+
+        return $this->registry[$key];
+    }
+
+    /**
+     * Given a string like 'key1:value1,key2:value2', it returns an associative array
+     * ['key1'=> 'value1', 'key2'=> 'value2']
+     *
+     * @param string $key
+     * @return string[]
+     */
+    public function associativeStringArrayValue($key)
+    {
+        if (isset($this->registry[$key])) {
+            return $this->registry[$key];
+        }
+
+        $default = [];
+        $value = $this->get($key);
+
+        if (null === $value) {
+            return $default;
+        }
+
+        // For now we provide no escaping
+        $this->registry[$key] = [];
+        $elements = explode(',', $value);
+        foreach ($elements as $element) {
+            $keyAndValue = explode(':', $element);
+
+            if (count($keyAndValue) !== 2) {
+                continue;
+            }
+
+            $keyFragment = trim($keyAndValue[0]);
+            $valueFragment = trim($keyAndValue[1]);
+
+            if (empty($keyFragment)) {
+                continue;
+            }
+
+            $this->registry[$key][$keyFragment] = $valueFragment;
         }
 
         return $this->registry[$key];
@@ -44,18 +162,18 @@ class EnvVariableRegistry implements Registry
     public function inArray($key, $name)
     {
         if (!isset($this->registry[$key])) {
-            $value = getenv($this->convertKeyToEnvVariableName($key));
-            if (is_string($value)) {
+            $value = $this->get($key);
+            if (null !== $value) {
                 $disabledIntegrations = explode(',', $value);
                 $this->registry[$key] = array_map(function ($entry) {
-                    return trim(strtolower($entry));
+                    return strtolower(trim($entry));
                 }, $disabledIntegrations);
             } else {
                 $this->registry[$key] = [];
             }
         }
 
-        return in_array(strtolower($name), $this->registry[$key]);
+        return in_array(strtolower($name), $this->registry[$key], true);
     }
 
     /**
@@ -68,6 +186,6 @@ class EnvVariableRegistry implements Registry
      */
     private function convertKeyToEnvVariableName($key)
     {
-        return 'DD_' . trim(strtoupper(str_replace('.', '_', $key)));
+        return $this->prefix . strtoupper(str_replace('.', '_', trim($key)));
     }
 }

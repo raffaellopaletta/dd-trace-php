@@ -9,6 +9,7 @@ use MongoCollection;
 use DDTrace\Integrations\IntegrationsLoader;
 use DDTrace\Tests\Common\SpanAssertion;
 use DDTrace\Tests\Common\IntegrationTestCase;
+use DDTrace\Configuration;
 
 final class MongoTest extends IntegrationTestCase
 {
@@ -192,6 +193,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoDB.command', 'mongo', 'mongodb', 'command')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"age":{"$gte":18}}',
                     'mongodb.timeout' => '500',
@@ -450,6 +452,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.distinct', 'mongo', 'mongodb', 'distinct')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"foo":"bar"}',
                 ]),
@@ -464,6 +467,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.find', 'mongo', 'mongodb', 'find')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"foo":"bar"}',
                 ]),
@@ -483,6 +487,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.findAndModify', 'mongo', 'mongodb', 'findAndModify')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"foo":"bar"}',
                 ]),
@@ -497,6 +502,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.findOne', 'mongo', 'mongodb', 'findOne')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"foo":"bar"}',
                 ]),
@@ -624,6 +630,7 @@ final class MongoTest extends IntegrationTestCase
 
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.update', 'mongo', 'mongodb', 'update')
+                ->setTraceAnalyticsCandidate()
                 ->withExactTags([
                     'mongodb.query' => '{"foo":"bar"}',
                 ]),
@@ -642,6 +649,29 @@ final class MongoTest extends IntegrationTestCase
         $this->assertSpans($traces, [
             SpanAssertion::build('MongoCollection.' . $method, 'mongo', 'mongodb', $method),
         ]);
+    }
+
+
+    public function testLimitedTracer()
+    {
+        putenv('DD_TRACE_SPANS_LIMIT=0');
+        dd_trace_internal_fn('ddtrace_reload_config');
+
+        $traces = $this->isolateCollection(function (MongoCollection $collection) {
+            $collection->distinct('foo', ['foo' => 'bar']);
+            $collection->update(
+                ['foo' => 'bar'],
+                []
+            );
+            $collection->setWriteConcern('majority');
+            $collection->parallelCollectionScan(2);
+            $collection->aggregate([], ['explain' => true]);
+        });
+
+        putenv('DD_TRACE_SPANS_LIMIT');
+        dd_trace_internal_fn('ddtrace_reload_config');
+
+        $this->assertEmpty($traces);
     }
 
     public function collectionMethods()
