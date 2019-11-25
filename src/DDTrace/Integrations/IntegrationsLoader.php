@@ -22,7 +22,7 @@ class IntegrationsLoader
         CurlIntegration::NAME => '\DDTrace\Integrations\Curl\CurlIntegration',
         ElasticSearchIntegration::NAME => '\DDTrace\Integrations\ElasticSearch\V1\ElasticSearchIntegration',
         EloquentIntegration::NAME => '\DDTrace\Integrations\Eloquent\EloquentIntegration',
-        GuzzleIntegration::NAME => '\DDTrace\Integrations\Guzzle\V5\GuzzleIntegration',
+        GuzzleIntegration::NAME => '\DDTrace\Integrations\Guzzle\V6\GuzzleIntegration',
         MemcachedIntegration::NAME => '\DDTrace\Integrations\Memcached\MemcachedIntegration',
         MongoIntegration::NAME => '\DDTrace\Integrations\Mongo\MongoIntegration',
         MysqliIntegration::NAME => '\DDTrace\Integrations\Mysqli\MysqliIntegration',
