@@ -61,6 +61,7 @@ class SymfonyBundle extends Bundle
         $appName = $this->getAppName();
         $symfonyRequestSpan = $scope->getSpan();
         $symfonyRequestSpan->setTag(Tags\SERVICE_NAME, $appName);
+        $symfonyRequestSpan->setTag(Tags\ENV, $this->getAppEnv());
         $symfonyRequestSpan->setTag(Tags\SPAN_TYPE, Types\WEB_SERVLET);
         $request = null;
 
@@ -216,6 +217,15 @@ class SymfonyBundle extends Bundle
             return $appName;
         } else {
             return 'symfony';
+        }
+    }
+
+    private function getAppEnv()
+    {
+        if ($appName = getenv('ddtrace_app_env')) {
+            return $appName;
+        } else {
+            return 'none';
         }
     }
 }

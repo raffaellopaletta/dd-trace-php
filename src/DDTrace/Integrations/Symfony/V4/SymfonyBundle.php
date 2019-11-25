@@ -58,6 +58,7 @@ class SymfonyBundle extends Bundle
         $scope = $tracer->startActiveSpan('symfony.request');
         $symfonyRequestSpan = $scope->getSpan();
         $symfonyRequestSpan->setTag(Tags\SERVICE_NAME, $this->getAppName());
+        $symfonyRequestSpan->setTag(Tags\ENV, $this->getAppEnv());
         $symfonyRequestSpan->setTag(Tags\SPAN_TYPE, Types\WEB_SERVLET);
 
         // public function handle(Request $request, $type = HttpKernelInterface::MASTER_REQUEST, $catch = true)
@@ -152,6 +153,15 @@ class SymfonyBundle extends Bundle
             return $appName;
         } else {
             return 'symfony';
+        }
+    }
+
+    private function getAppEnv()
+    {
+        if ($appName = getenv('ddtrace_app_env')) {
+            return $appName;
+        } else {
+            return 'none';
         }
     }
 }
